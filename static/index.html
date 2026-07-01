@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinGuard — AML & Fraud Detection Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#0a0a12; --surface:#11111e; --card:#181828; --border:#2a2a45;
+  --text:#e2e2f0; --muted:#7878a0; --accent:#4f9eff; --danger:#ff4f4f;
+  --warning:#ffb347; --success:#4fdb8a; --critical:#ff2266;
+  --font:'Segoe UI', system-ui, sans-serif;
+}
+body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; min-height:100vh; }
+.header { background:var(--surface); border-bottom:1px solid var(--border); padding:14px 28px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+.logo { display:flex; align-items:center; gap:10px; font-size:20px; font-weight:700; color:var(--accent); letter-spacing:-0.5px; }
+.logo span { color:var(--text); font-weight:400; font-size:13px; margin-left:4px; }
+.status-dot { width:8px; height:8px; border-radius:50%; background:var(--success); animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.header-right { display:flex; align-items:center; gap:16px; font-size:13px; color:var(--muted); }
+.main { display:grid; grid-template-columns:1fr 340px; grid-template-rows:auto 1fr; gap:16px; padding:20px 28px; min-height:calc(100vh - 58px); }
+.kpi-row { grid-column:1/-1; display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+.kpi-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 20px; position:relative; overflow:hidden; }
+.kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent); border-radius:12px 12px 0 0; }
+.kpi-card.danger::before  { background:var(--danger); }
+.kpi-card.warning::before { background:var(--warning); }
+.kpi-card.success::before { background:var(--success); }
+.kpi-card.critical::before { background:var(--critical); }
+.kpi-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; }
+.kpi-value { font-size:28px; font-weight:700; margin:6px 0 2px; color:var(--text); }
+.kpi-sub   { font-size:12px; color:var(--muted); }
+.graph-panel { background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; display:flex; flex-direction:column; }
+.panel-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); }
+.panel-title { font-size:13px; font-weight:600; color:var(--text); }
+.panel-subtitle { font-size:12px; color:var(--muted); margin-top:2px; }
+#graph-container { flex:1; position:relative; min-height:440px; }
+#graph-svg { width:100%; height:100%; }
+.graph-legend { display:flex; gap:16px; padding:10px 18px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
+.legend-dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:4px; vertical-align:middle; }
+.alert-panel { background:var(--card); border:1px solid var(--border); border-radius:12px; display:flex; flex-direction:column; max-height:560px; }
+.alert-feed { flex:1; overflow-y:auto; padding:8px 0; }
+.alert-feed::-webkit-scrollbar { width:4px; }
+.alert-feed::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+.alert-item { padding:10px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.15s; }
+.alert-item:hover { background:rgba(79,158,255,0.05); }
+.alert-item:last-child { border-bottom:none; }
+.alert-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+.alert-id { font-weight:600; font-size:12px; font-family:monospace; color:var(--accent); }
+.risk-badge { font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; letter-spacing:0.05em; }
+.risk-badge.LOW      { background:rgba(79,219,138,0.15); color:var(--success); }
+.risk-badge.MEDIUM   { background:rgba(255,179,71,0.15);  color:var(--warning); }
+.risk-badge.HIGH     { background:rgba(255,79,79,0.15);   color:var(--danger); }
+.risk-badge.CRITICAL { background:rgba(255,34,102,0.25);  color:var(--critical); }
+.alert-route { font-size:12px; color:var(--muted); }
+.alert-amount { font-size:13px; color:var(--text); }
+.alert-time { font-size:11px; color:var(--muted); margin-top:2px; }
+.txn-form { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+.form-group { display:flex; flex-direction:column; gap:5px; }
+.form-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
+.form-input { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px 12px; color:var(--text); font-size:13px; font-family:var(--font); outline:none; transition:border-color 0.2s; width:100%; min-width:0; }
+.form-input:focus { border-color:var(--accent); }
+.btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; width:100%; margin-top:6px; transition:opacity 0.2s; }
+.btn:hover { opacity:0.85; }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+.result-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-top:12px; display:none; overflow:hidden; }
+.result-card.show { display:block; }
+.result-card.flagged { border-color:var(--danger); }
+.result-score { font-size:32px; font-weight:700; margin:4px 0; }
+.result-score.low      { color:var(--success); }
+.result-score.medium   { color:var(--warning); }
+.result-score.high     { color:var(--danger); }
+.result-score.critical { color:var(--critical); }
+.signals-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:10px; }
+.signal-item { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+.signal-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.signal-dot.ok  { background:var(--success); }
+.signal-dot.bad { background:var(--danger); }
+.tooltip { position:fixed; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-size:12px; pointer-events:none; opacity:0; transition:opacity 0.15s; z-index:1000; max-width:200px; }
+.tooltip.show { opacity:1; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">🛡 FinGuard <span>Anti-Money Laundering & Fraud Detection</span></div>
+  <div class="header-right">
+    <div style="display:flex;align-items:center;gap:6px">
+      <div class="status-dot" id="api-dot"></div>
+      <span id="api-status">Connecting...</span>
+    </div>
+    <span id="clock"></span>
+  </div>
+</header>
+
+<div class="main">
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Total Transactions</div>
+      <div class="kpi-value" id="kpi-total">—</div>
+      <div class="kpi-sub">All time</div>
+    </div>
+    <div class="kpi-card danger">
+      <div class="kpi-label">Flagged</div>
+      <div class="kpi-value" id="kpi-flagged">—</div>
+      <div class="kpi-sub" id="kpi-rate">—% flag rate</div>
+    </div>
+    <div class="kpi-card critical">
+      <div class="kpi-label">High Risk</div>
+      <div class="kpi-value" id="kpi-high">—</div>
+      <div class="kpi-sub">HIGH + CRITICAL</div>
+    </div>
+    <div class="kpi-card warning">
+      <div class="kpi-label">Graph Nodes</div>
+      <div class="kpi-value" id="kpi-nodes">—</div>
+      <div class="kpi-sub">Unique accounts</div>
+    </div>
+    <div class="kpi-card success">
+      <div class="kpi-label">Cycles Detected</div>
+      <div class="kpi-value" id="kpi-cycles">—</div>
+      <div class="kpi-sub">Money laundering loops</div>
+    </div>
+  </div>
+
+  <div class="graph-panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Transaction Graph</div>
+        <div class="panel-subtitle">Live account relationship network • Click node to inspect</div>
+      </div>
+      <input class="form-input" id="account-search" placeholder="Search account..."
+             style="width:180px;padding:6px 10px;font-size:12px" oninput="searchAccount(this.value)">
+    </div>
+    <div id="graph-container"><svg id="graph-svg"></svg></div>
+    <div class="graph-legend">
+      <span><span class="legend-dot" style="background:#4f9eff"></span>Normal</span>
+      <span><span class="legend-dot" style="background:#ffb347"></span>Medium risk</span>
+      <span><span class="legend-dot" style="background:#ff4f4f"></span>High risk</span>
+      <span><span class="legend-dot" style="background:#ff2266"></span>Critical / Cycle</span>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="txn-form">
+      <div class="panel-title" style="margin-bottom:12px">Submit Transaction</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">From Account</label>
+          <input class="form-input" id="from-acc" value="ACC_001" placeholder="ACC_001">
+        </div>
+        <div class="form-group">
+          <label class="form-label">To Account</label>
+          <input class="form-input" id="to-acc" value="ACC_002" placeholder="ACC_002">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Amount (₹)</label>
+        <input class="form-input" id="amount" type="number" value="5000" min="1">
+      </div>
+      <!-- FIX: added id="btn-analyze" so querySelector doesn't grab wrong button -->
+      <button id="btn-analyze" class="btn" onclick="submitTransaction()">Analyze Transaction</button>
+      <button class="btn" style="margin-top:6px;background:rgba(255,79,79,0.15);color:var(--danger);border:1px solid var(--danger)"
+              onclick="simulateFraudLoop()">Simulate Fraud Loop</button>
+
+      <div class="result-card" id="result-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div class="kpi-label">Risk Score</div>
+            <div class="result-score" id="result-score">0.00</div>
+          </div>
+          <div id="result-badge" class="risk-badge">—</div>
+        </div>
+        <div id="result-txnid" style="font-family:monospace;font-size:11px;color:var(--muted);margin:4px 0"></div>
+        <div class="signals-grid" id="signals-grid"></div>
+      </div>
+    </div>
+
+    <div class="alert-panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Fraud Alerts</div>
+          <div class="panel-subtitle">Real-time flagged transactions</div>
+        </div>
+        <button onclick="loadAlerts()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">↻ Refresh</button>
+      </div>
+      <div class="alert-feed" id="alert-feed">
+        <div style="padding:20px;text-align:center;color:var(--muted)">No alerts yet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const API = 'http://localhost:8000';
+let graphData = { nodes: [], links: [] };
+let simulation, svg, linkSel, labelSel;
+
+// Clock
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-IN', { hour12: false });
+}
+setInterval(updateClock, 1000); updateClock();
+
+// Health
+async function checkHealth() {
+  try {
+    const d = await fetch(`${API}/health`).then(r => r.json());
+    document.getElementById('api-dot').style.background = d.status === 'running' ? 'var(--success)' : 'var(--danger)';
+    document.getElementById('api-status').textContent   = d.status === 'running' ? 'API Online' : 'API Error';
+  } catch {
+    document.getElementById('api-dot').style.background = 'var(--danger)';
+    document.getElementById('api-status').textContent = 'API Offline';
+  }
+}
+setInterval(checkHealth, 5000); checkHealth();
+
+// Stats
+async function loadStats() {
+  try {
+    const d = await fetch(`${API}/stats`).then(r => r.json());
+    document.getElementById('kpi-total').textContent   = d.total_transactions.toLocaleString();
+    document.getElementById('kpi-flagged').textContent = d.flagged_count.toLocaleString();
+    document.getElementById('kpi-rate').textContent    = `${d.flag_rate}% flag rate`;
+    document.getElementById('kpi-high').textContent    = d.high_risk_count.toLocaleString();
+    document.getElementById('kpi-nodes').textContent   = d.graph_nodes.toLocaleString();
+    document.getElementById('kpi-cycles').textContent  = d.cycles_detected.toLocaleString();
+  } catch(e) {}
+}
+setInterval(loadStats, 3000); loadStats();
+
+// Graph
+function initGraph() {
+  const container = document.getElementById('graph-container');
+  const W = container.offsetWidth || 700;
+  const H = container.offsetHeight || 440;
+
+  svg = d3.select('#graph-svg').attr('viewBox', `0 0 ${W} ${H}`);
+
+  svg.append('defs').append('marker')
+    .attr('id','arrow').attr('viewBox','0 0 10 10')
+    .attr('refX', 22).attr('refY', 5)
+    .attr('markerWidth', 5).attr('markerHeight', 5)
+    .attr('orient','auto-start-reverse')
+    .append('path').attr('d','M 0 0 L 10 5 L 0 10 Z').attr('fill','#3a3a55');
+
+  svg.append('g').attr('class','links');
+  svg.append('g').attr('class','nodes');
+  svg.append('g').attr('class','labels');
+
+  simulation = d3.forceSimulation()
+    .force('link',      d3.forceLink().id(d => d.id).distance(110))
+    .force('charge',    d3.forceManyBody().strength(-400))
+    .force('center',    d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(32));
+}
+
+function nodeColor(risk) {
+  if (risk >= 0.85) return '#ff2266';
+  if (risk >= 0.65) return '#ff4f4f';
+  if (risk >= 0.40) return '#ffb347';
+  return '#4f9eff';
+}
+
+function updateGraph(newNodes, newEdges) {
+  newNodes.forEach(n => {
+    const existing = graphData.nodes.find(x => x.id === n.id);
+    if (!existing) {
+      graphData.nodes.push({ ...n, x: Math.random()*600+50, y: Math.random()*380+30 });
+    } else {
+      existing.risk = Math.max(existing.risk || 0, n.risk || 0);
+    }
+  });
+
+  newEdges.forEach(e => {
+    const key = `${e.from}-${e.to}`;
+    const exists = graphData.links.find(x =>
+      `${x.source?.id||x.source}-${x.target?.id||x.target}` === key);
+    if (!exists) graphData.links.push({ source: e.from, target: e.to, amount: e.amount });
+  });
+
+  // Links
+  linkSel = svg.select('.links').selectAll('line')
+    .data(graphData.links, d => `${d.source?.id||d.source}-${d.target?.id||d.target}`)
+    .join('line')
+    .attr('stroke','#3a3a55')
+    .attr('stroke-width', 1.5)
+    .attr('marker-end','url(#arrow)');
+
+  // Nodes
+  const nodeG = svg.select('.nodes').selectAll('circle')
+    .data(graphData.nodes, d => d.id)
+    .join('circle')
+    .attr('r', 16)
+    .attr('fill', d => nodeColor(d.risk || 0))
+    .attr('stroke','#0a0a12')
+    .attr('stroke-width', 2)
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (event, d) => { d.fx = event.x; d.fy = event.y; })
+      .on('end',   (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+    )
+    .on('mouseover', (event, d) => showTooltip(event, d))
+    .on('mousemove', moveTooltip)
+    .on('mouseout',  hideTooltip)
+    .on('click', (event, d) => loadAccountGraph(d.id));
+
+  labelSel = svg.select('.labels').selectAll('text')
+    .data(graphData.nodes, d => d.id)
+    .join('text')
+    .text(d => {
+      const id = d.id || '';
+      return id.length > 7 ? id.slice(-7) : id;
+    })
+    .attr('fill','#9090b8')
+    .attr('font-size','8px')
+    .attr('text-anchor','middle')
+    .attr('dy','28px')
+    .style('pointer-events','none')
+    .style('user-select','none');
+
+  simulation.nodes(graphData.nodes).on('tick', () => {
+    linkSel
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    nodeG.attr('cx', d => d.x).attr('cy', d => d.y);
+    labelSel.attr('x', d => d.x).attr('y', d => d.y);
+  });
+
+  simulation.force('link').links(graphData.links);
+  simulation.alpha(0.5).restart();
+}
+
+function showTooltip(event, d) {
+  const t = document.getElementById('tooltip');
+  t.innerHTML = `<strong>${d.id}</strong><br>Risk: ${((d.risk||0)*100).toFixed(0)}%<br>${(d.risk||0) >= 0.65 ? '⚠️ High risk' : '✓ Normal'}`;
+  t.classList.add('show');
+  moveTooltip(event);
+}
+function moveTooltip(event) {
+  const t = document.getElementById('tooltip');
+  t.style.left = (event.clientX + 14) + 'px';
+  t.style.top  = (event.clientY - 32) + 'px';
+}
+function hideTooltip() { document.getElementById('tooltip').classList.remove('show'); }
+
+// Submit — FIX: use getElementById('btn-analyze') not querySelector('.btn')
+async function submitTransaction() {
+  const btn    = document.getElementById('btn-analyze');
+  const fromAc = document.getElementById('from-acc').value.trim();
+  const toAcc  = document.getElementById('to-acc').value.trim();
+  const amount = parseFloat(document.getElementById('amount').value);
+
+  if (!fromAc || !toAcc || isNaN(amount)) { alert('Fill in all fields'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+
+  try {
+    const r = await fetch(`${API}/transaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_account: fromAc, to_account: toAcc, amount })
+    });
+    const d = await r.json();
+    showResult(d);
+    updateGraph(
+      [{ id: d.from_account, risk: d.final_risk_score },
+       { id: d.to_account,   risk: d.final_risk_score * 0.4 }],
+      [{ from: d.from_account, to: d.to_account, amount: d.amount }]
+    );
+    loadAlerts(); loadStats();
+  } catch(e) {
+    alert('API error — is the FastAPI server running?');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analyze Transaction';
+  }
+}
+
+function showResult(d) {
+  const pct   = (d.final_risk_score * 100).toFixed(1);
+  const level = d.risk_level.toLowerCase();
+  document.getElementById('result-score').textContent = `${pct}%`;
+  document.getElementById('result-score').className   = `result-score ${level}`;
+  document.getElementById('result-badge').textContent  = d.risk_level;
+  document.getElementById('result-badge').className    = `risk-badge ${d.risk_level}`;
+  document.getElementById('result-txnid').textContent  = `TXN: ${d.txn_id}  •  ₹${d.amount.toLocaleString()}`;
+  document.getElementById('result-card').className     = `result-card show${d.flagged_as_fraud ? ' flagged' : ''}`;
+
+  const gs = d.graph_signals;
+  document.getElementById('signals-grid').innerHTML = `
+    <div class="signal-item"><span class="signal-dot ${gs.cycles.has_cycle?'bad':'ok'}"></span>Cycle ${gs.cycles.has_cycle?'⚠ Detected':'Clear'}</div>
+    <div class="signal-item"><span class="signal-dot ${gs.fan_out.fan_out_risk?'bad':'ok'}"></span>Fan-out ${gs.fan_out.fan_out_risk?'⚠ '+gs.fan_out.unique_recipients+' recip.':'Normal'}</div>
+    <div class="signal-item"><span class="signal-dot ${gs.structuring.structuring_risk?'bad':'ok'}"></span>Structuring ${gs.structuring.structuring_risk?'⚠':'None'}</div>
+    <div class="signal-item"><span class="signal-dot ${gs.velocity.velocity_risk?'bad':'ok'}"></span>Velocity ${gs.velocity.txn_count}/hr</div>
+    <div class="signal-item"><span class="signal-dot ok"></span>ML: ${(d.ml_risk.combined_ml_risk*100).toFixed(0)}%</div>
+    <div class="signal-item"><span class="signal-dot ${d.graph_risk>0.4?'bad':'ok'}"></span>Graph: ${(d.graph_risk*100).toFixed(0)}%</div>
+  `;
+}
+
+async function simulateFraudLoop() {
+  const accounts = ['LAUNDER_A','LAUNDER_B','LAUNDER_C'];
+  const amounts  = [49200, 48700, 47900];
+  for (let i = 0; i < 3; i++) {
+    document.getElementById('from-acc').value = accounts[i];
+    document.getElementById('to-acc').value   = accounts[(i+1)%3];
+    document.getElementById('amount').value   = amounts[i];
+    await submitTransaction();
+    await new Promise(r => setTimeout(r, 700));
+  }
+}
+
+async function loadAccountGraph(accountId) {
+  try {
+    const r = await fetch(`${API}/graph/${accountId}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    updateGraph(
+      d.subgraph.nodes.map(n => ({ id: n.id, risk: n.risk })),
+      d.subgraph.edges.map(e => ({ from: e.from, to: e.to, amount: e.amount }))
+    );
+  } catch(e) {}
+}
+
+function searchAccount(val) {
+  if (val.length >= 3) loadAccountGraph(val.toUpperCase());
+}
+
+async function loadAlerts() {
+  try {
+    const d = await fetch(`${API}/alerts?limit=20`).then(r => r.json());
+    const feed = document.getElementById('alert-feed');
+    if (!d.alerts.length) {
+      feed.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">No alerts yet</div>';
+      return;
+    }
+    feed.innerHTML = d.alerts.map(a => `
+      <div class="alert-item" onclick="loadAccountGraph('${a.from_account}')">
+        <div class="alert-top">
+          <span class="alert-id">${a.txn_id||'—'}</span>
+          <span class="risk-badge ${a.risk_level}">${a.risk_level}</span>
+        </div>
+        <div class="alert-route">${a.from_account} → ${a.to_account}</div>
+        <div style="display:flex;justify-content:space-between;margin-top:3px">
+          <span class="alert-amount">₹${(a.amount||0).toLocaleString()}</span>
+          <span class="alert-time">${a.timestamp ? new Date(a.timestamp).toLocaleTimeString() : '—'}</span>
+        </div>
+      </div>`).join('');
+  } catch(e) {}
+}
+setInterval(loadAlerts, 4000);
+
+window.addEventListener('load', () => {
+  initGraph();
+  loadAlerts();
+  loadStats();
+  updateGraph(
+    [{ id:'ACC_001', risk:0.1 }, { id:'ACC_002', risk:0.1 }, { id:'ACC_003', risk:0.2 }],
+    [{ from:'ACC_001', to:'ACC_002', amount:5000 }, { from:'ACC_002', to:'ACC_003', amount:3000 }]
+  );
+});
+</script>
+</body>
+</html>
